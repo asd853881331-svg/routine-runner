@@ -27,7 +27,7 @@ class PriceParser(HTMLParser):
             return
         classes = set(dict(attrs).get("class", "").split())
         in_price_area = any("promotion-price-area" in node[1] for node in self.parent)
-        if in_price_area and classes.intersection({"promotion-price", "old-price"}):
+        if (in_price_area and classes.intersection({"promotion-price", "old-price"})) or "price-deal__original-price" in classes:
             self.current = []
             self.prices.append(self.current)
         self.parent.append((tag, classes, self.current))
@@ -112,7 +112,7 @@ def main():
                 page = browser.new_page(locale="zh-CN")
                 url = product_url(asin)
                 page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-                page.locator(".promotion-price-area .promotion-price").first.wait_for(timeout=25_000)
+                page.locator(".promotion-price-area .promotion-price, .price-deal__original-price").first.wait_for(timeout=25_000)
                 price = parse_price(page.content())
                 read_status = "成功"
                 mail_status = "未触发"
@@ -137,4 +137,5 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
