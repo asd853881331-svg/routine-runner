@@ -2,6 +2,20 @@ name: Amazon price monitor
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: "选择操作（check 查价、add 添加、delete 删除）"
+        type: choice
+        options:
+          - check
+          - add
+          - delete
+        default: check
+      product:
+        description: "添加或删除时填商品链接或 ASIN"
+        type: string
+      price_limit:
+        description: "添加时填提醒价格（元）"
+        type: string
       test_email:
         description: Send one test email instead of checking prices
         type: boolean
@@ -14,14 +28,40 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 8
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Install browser
+        with:
+          ref: main
+      - name: Install dependencies
+        if: inputs.action != 'delete'
         run: |
-          python3 -m pip install playwright
+          python3 -m pip install playwright cryptography
           python3 -m playwright install chromium
+      - name: Install management dependencies
+        if: inputs.action == 'delete'
+        run: python3 -m pip install playwright cryptography
+      - name: Manage products
+        if: inputs.action == 'add' || inputs.action == 'delete'
+        env:
+          MONITOR_ACTION: ${{ inputs.action }}
+          PRODUCT_INPUT: ${{ inputs.product }}
+          PRICE_LIMIT: ${{ inputs.price_limit }}
+          MONITOR_PRODUCTS: ${{ secrets.MONITOR_PRODUCTS }}
+          PRODUCT_CONFIG_KEY: ${{ secrets.PRODUCT_CONFIG_KEY }}
+        run: python3 monitor.py
+      - name: Save encrypted list
+        if: inputs.action == 'add' || inputs.action == 'delete'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- products.enc
+          git commit -m 'Update monitored product list'
+          git push origin HEAD:main
       - name: Check prices or send test email
+        if: inputs.action != 'add' && inputs.action != 'delete'
         run: |
           if [ "$TEST_EMAIL" = "true" ]; then
             python3 -c 'import os; from monitor import send_mail, write_summary; send_mail(os.environ["SMTP_CODE"], "亚马逊价格监控云端测试", "这是一封由 GitHub Actions 发出的测试邮件。"); write_summary([("测试邮件", None, "测试模式", "已发送")])'
@@ -29,10 +69,12 @@ jobs:
             python3 monitor.py
           fi
         env:
+          PRODUCT_CONFIG_KEY: ${{ secrets.PRODUCT_CONFIG_KEY }}
           TEST_EMAIL: ${{ inputs.test_email }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_CODE: ${{ secrets.SMTP_CODE }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
           MONITOR_PRODUCTS: ${{ secrets.MONITOR_PRODUCTS }}
+
 
 
