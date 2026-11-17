@@ -1,7 +1,7 @@
 name: Amazon price monitor
 on:
   schedule:
-    - cron: '2-57/5 * * * *'
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
     inputs:
       test_email:
@@ -36,3 +36,4 @@ jobs:
           SMTP_CODE: ${{ secrets.SMTP_CODE }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
           MONITOR_PRODUCTS: ${{ secrets.MONITOR_PRODUCTS }}
+
