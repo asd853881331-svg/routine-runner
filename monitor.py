@@ -107,7 +107,8 @@ def manage_products(action):
     from cryptography.fernet import Fernet
 
     key = Fernet(os.environ["PRODUCT_CONFIG_KEY"])
-    product = os.environ.get("PRODUCT_INPUT", "").strip()
+    inputs = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8")).get("inputs", {})
+    product = inputs.get("product", "").strip()
     match = re.fullmatch(r"(?:https://globalstore\.amazon\.cn/detailPage/)?([A-Za-z0-9]{10})(?:[/?#].*)?", product)
     if not match:
         raise SystemExit("请输入有效的海外购商品链接或 10 位 ASIN。")
@@ -121,7 +122,7 @@ def manage_products(action):
     else:
         if existing:
             raise SystemExit("此商品已在监控列表中。")
-        limit = os.environ.get("PRICE_LIMIT", "").strip()
+        limit = inputs.get("price_limit", "").strip()
         if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,2})?", limit) or Decimal(limit) <= 0:
             raise SystemExit("请输入大于零、最多两位小数的提醒价。")
         with sync_playwright() as api:
@@ -191,5 +192,6 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
 
