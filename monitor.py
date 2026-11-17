@@ -88,11 +88,12 @@ def write_summary(rows):
     checked_at = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
     with open(path, "a", encoding="utf-8") as summary:
         summary.write(f"## 查价状态\n\n最近查价时间：{checked_at}（北京时间）\n\n")
-        summary.write("| 商品 | 最新标价 | 读取状态 | 邮件状态 |\n| --- | --- | --- | --- |\n")
-        for name, price, read_status, mail_status in rows:
+        summary.write("| 商品 | 最新标价 | 提醒价（低于时发邮件） | 读取状态 | 邮件状态 |\n| --- | --- | --- | --- | --- |\n")
+        for name, price, read_status, mail_status, *threshold in rows:
             name = str(name).replace("|", "&#124;").replace("\n", " ")
             listed_price = f"¥{price:.2f}" if price is not None else "—"
-            summary.write(f"| {name} | {listed_price} | {read_status} | {mail_status} |\n")
+            alert_price = f"¥{Decimal(threshold[0]):.2f}" if threshold else "—"
+            summary.write(f"| {name} | {listed_price} | {alert_price} | {read_status} | {mail_status} |\n")
 
 
 def load_products():
@@ -183,7 +184,7 @@ def main():
                 print(f"Check or notification failed ({type(exc).__name__})", flush=True)
                 failed = True
             finally:
-                rows.append((f"{name} · {asin}", price, read_status, mail_status))
+                rows.append((f"{name} · {asin}", price, read_status, mail_status, threshold))
                 if page is not None:
                     page.close()
     write_summary(rows)
@@ -192,6 +193,7 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
 
 
