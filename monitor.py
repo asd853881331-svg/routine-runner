@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from email.message import EmailMessage
 from html.parser import HTMLParser
@@ -78,33 +79,56 @@ def send_mail(code, subject, body):
 
 
 
+def write_summary(rows):
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    checked_at = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    with open(path, "a", encoding="utf-8") as summary:
+        summary.write(f"## 查价状态\n\n最近查价时间：{checked_at}（北京时间）\n\n")
+        summary.write("| 商品 | 读取状态 | 邮件状态 |\n| --- | --- | --- |\n")
+        for index, read_status, mail_status in rows:
+            summary.write(f"| 商品 {index} | {read_status} | {mail_status} |\n")
+
+
 def main():
     if not PRODUCTS.strip():
         raise SystemExit("Set the MONITOR_PRODUCTS secret")
     products = [row.split("|", 2) for row in PRODUCTS.splitlines() if row.strip()]
     failed = False
+    rows = []
     code = os.environ.get("SMTP_CODE", "")
     with sync_playwright() as browser_api:
         browser = browser_api.chromium.launch()
-        for asin, threshold, name in products:
-            limit = Decimal(threshold)
-            page = browser.new_page(locale="zh-CN")
+        for index, (asin, threshold, name) in enumerate(products, 1):
+            read_status = "失败"
+            mail_status = "未检查"
+            page = None
             try:
+                limit = Decimal(threshold)
+                page = browser.new_page(locale="zh-CN")
                 url = product_url(asin)
                 page.goto(url, wait_until="domcontentloaded", timeout=45_000)
                 page.locator(".promotion-price-area .promotion-price").first.wait_for(timeout=25_000)
                 price = parse_price(page.content())
+                read_status = "成功"
+                mail_status = "未触发"
                 print("Product price checked", flush=True)
                 if price < limit:
+                    mail_status = "发送失败"
                     if not (SENDER and RECIPIENT and code):
                         raise ValueError("Email secrets are missing")
                     send_mail(code, f"亚马逊海外购降价提醒：{name} ¥{price}",
                               f"{name}\n商品标价 ¥{price}，低于 ¥{limit}。\n商品链接：{url}")
+                    mail_status = "已发送"
             except Exception as exc:
                 print(f"Check or notification failed ({type(exc).__name__})", flush=True)
                 failed = True
             finally:
-                page.close()
+                rows.append((index, read_status, mail_status))
+                if page is not None:
+                    page.close()
+    write_summary(rows)
     return int(failed)
 
 
