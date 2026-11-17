@@ -1,4 +1,4 @@
-name: Amazon price monitor
+name: Routine check
 on:
   workflow_dispatch:
     inputs:
@@ -73,6 +73,7 @@ jobs:
           SMTP_CODE: ${{ secrets.SMTP_CODE }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
           MONITOR_PRODUCTS: ${{ secrets.MONITOR_PRODUCTS }}
+
 
 
 
