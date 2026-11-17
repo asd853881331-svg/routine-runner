@@ -26,7 +26,7 @@ jobs:
       - name: Check prices or send test email
         run: |
           if [ "$TEST_EMAIL" = "true" ]; then
-            python3 -c 'import os; from monitor import send_mail, write_summary; send_mail(os.environ["SMTP_CODE"], "亚马逊价格监控云端测试", "这是一封由 GitHub Actions 发出的测试邮件。"); write_summary([(1, "测试模式", "已发送")])'
+            python3 -c 'import os; from monitor import send_mail, write_summary; send_mail(os.environ["SMTP_CODE"], "亚马逊价格监控云端测试", "这是一封由 GitHub Actions 发出的测试邮件。"); write_summary([("测试邮件", None, "测试模式", "已发送")])'
           else
             python3 monitor.py
           fi
