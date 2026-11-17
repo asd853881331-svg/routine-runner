@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '2-57/5 * * * *'
   workflow_dispatch:
+    inputs:
+      test_email:
+        description: Send one test email instead of checking prices
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -18,9 +23,15 @@ jobs:
         run: |
           python3 -m pip install playwright
           python3 -m playwright install chromium
-      - name: Check prices
-        run: python3 monitor.py
+      - name: Check prices or send test email
+        run: |
+          if [ "$TEST_EMAIL" = "true" ]; then
+            python3 -c 'import os; from monitor import send_mail, write_summary; send_mail(os.environ["SMTP_CODE"], "亚马逊价格监控云端测试", "这是一封由 GitHub Actions 发出的测试邮件。"); write_summary([(1, "测试模式", "已发送")])'
+          else
+            python3 monitor.py
+          fi
         env:
+          TEST_EMAIL: ${{ inputs.test_email }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_CODE: ${{ secrets.SMTP_CODE }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
