@@ -1,0 +1,27 @@
+name: Amazon price monitor
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: amazon-price-monitor
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser
+        run: |
+          python3 -m pip install playwright
+          python3 -m playwright install chromium
+      - name: Check prices
+        run: python3 monitor.py
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_CODE: ${{ secrets.SMTP_CODE }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MONITOR_PRODUCTS: ${{ secrets.MONITOR_PRODUCTS }}
