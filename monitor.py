@@ -86,9 +86,11 @@ def write_summary(rows):
     checked_at = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
     with open(path, "a", encoding="utf-8") as summary:
         summary.write(f"## 查价状态\n\n最近查价时间：{checked_at}（北京时间）\n\n")
-        summary.write("| 商品 | 读取状态 | 邮件状态 |\n| --- | --- | --- |\n")
-        for index, read_status, mail_status in rows:
-            summary.write(f"| 商品 {index} | {read_status} | {mail_status} |\n")
+        summary.write("| 商品 | 最新标价 | 读取状态 | 邮件状态 |\n| --- | --- | --- | --- |\n")
+        for name, price, read_status, mail_status in rows:
+            name = str(name).replace("|", "&#124;").replace("\n", " ")
+            listed_price = f"¥{price:.2f}" if price is not None else "—"
+            summary.write(f"| {name} | {listed_price} | {read_status} | {mail_status} |\n")
 
 
 def main():
@@ -100,7 +102,8 @@ def main():
     code = os.environ.get("SMTP_CODE", "")
     with sync_playwright() as browser_api:
         browser = browser_api.chromium.launch()
-        for index, (asin, threshold, name) in enumerate(products, 1):
+        for asin, threshold, name in products:
+            price = None
             read_status = "失败"
             mail_status = "未检查"
             page = None
@@ -125,7 +128,7 @@ def main():
                 print(f"Check or notification failed ({type(exc).__name__})", flush=True)
                 failed = True
             finally:
-                rows.append((index, read_status, mail_status))
+                rows.append((name, price, read_status, mail_status))
                 if page is not None:
                     page.close()
     write_summary(rows)
