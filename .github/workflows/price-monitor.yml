@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref_name }}
       - name: Install dependencies
         if: inputs.action != 'delete'
         run: |
@@ -47,8 +47,6 @@ jobs:
         if: inputs.action == 'add' || inputs.action == 'delete'
         env:
           MONITOR_ACTION: ${{ inputs.action }}
-          PRODUCT_INPUT: ${{ inputs.product }}
-          PRICE_LIMIT: ${{ inputs.price_limit }}
           MONITOR_PRODUCTS: ${{ secrets.MONITOR_PRODUCTS }}
           PRODUCT_CONFIG_KEY: ${{ secrets.PRODUCT_CONFIG_KEY }}
         run: python3 monitor.py
@@ -59,7 +57,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- products.enc
           git commit -m 'Update monitored product list'
-          git push origin HEAD:main
+          git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
       - name: Check prices or send test email
         if: inputs.action != 'add' && inputs.action != 'delete'
         run: |
@@ -75,6 +73,7 @@ jobs:
           SMTP_CODE: ${{ secrets.SMTP_CODE }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
           MONITOR_PRODUCTS: ${{ secrets.MONITOR_PRODUCTS }}
+
 
 
 
