@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from email.message import EmailMessage
@@ -93,10 +95,62 @@ def write_summary(rows):
             summary.write(f"| {name} | {listed_price} | {read_status} | {mail_status} |\n")
 
 
+def load_products():
+    path = Path("products.enc")
+    if path.exists():
+        from cryptography.fernet import Fernet
+        return json.loads(Fernet(os.environ["PRODUCT_CONFIG_KEY"]).decrypt(path.read_bytes()))
+    return [row.split("|", 2) for row in PRODUCTS.splitlines() if row.strip()]
+
+
+def manage_products(action):
+    from cryptography.fernet import Fernet
+
+    key = Fernet(os.environ["PRODUCT_CONFIG_KEY"])
+    product = os.environ.get("PRODUCT_INPUT", "").strip()
+    match = re.fullmatch(r"(?:https://globalstore\.amazon\.cn/detailPage/)?([A-Za-z0-9]{10})(?:[/?#].*)?", product)
+    if not match:
+        raise SystemExit("请输入有效的海外购商品链接或 10 位 ASIN。")
+    asin = match[1].upper()
+    products = load_products()
+    existing = any(item[0] == asin for item in products)
+    if action == "delete":
+        if not existing:
+            raise SystemExit("此商品不在监控列表中。")
+        products = [item for item in products if item[0] != asin]
+    else:
+        if existing:
+            raise SystemExit("此商品已在监控列表中。")
+        limit = os.environ.get("PRICE_LIMIT", "").strip()
+        if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,2})?", limit) or Decimal(limit) <= 0:
+            raise SystemExit("请输入大于零、最多两位小数的提醒价。")
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            page = browser.new_page(locale="zh-CN")
+            try:
+                page.goto(product_url(asin), wait_until="domcontentloaded", timeout=45_000)
+                title = page.locator(".title-area").first
+                title.wait_for(timeout=25_000)
+                name = " ".join(title.inner_text().split())
+                if not name:
+                    raise SystemExit("商品页没有返回名称。")
+            finally:
+                browser.close()
+        products.append([asin, limit, name])
+    Path("products.enc").write_bytes(key.encrypt(json.dumps(products, ensure_ascii=False).encode()))
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+        summary.write(f"## 商品列表已更新\n\n当前监控 {len(products)} 件商品。\n")
+    return 0
+
+
 def main():
-    if not PRODUCTS.strip():
-        raise SystemExit("Set the MONITOR_PRODUCTS secret")
-    products = [row.split("|", 2) for row in PRODUCTS.splitlines() if row.strip()]
+    action = os.environ.get("MONITOR_ACTION") or "check"
+    if action in {"add", "delete"}:
+        return manage_products(action)
+    products = load_products()
+    if not products:
+        write_summary([])
+        return 0
     failed = False
     rows = []
     code = os.environ.get("SMTP_CODE", "")
@@ -128,7 +182,7 @@ def main():
                 print(f"Check or notification failed ({type(exc).__name__})", flush=True)
                 failed = True
             finally:
-                rows.append((name, price, read_status, mail_status))
+                rows.append((f"{name} · {asin}", price, read_status, mail_status))
                 if page is not None:
                     page.close()
     write_summary(rows)
