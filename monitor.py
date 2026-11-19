@@ -147,28 +147,50 @@ def manage_products(action):
     return 0
 
 
-async def fetch_prices(products):
+async def check_products(products, code):
     slots = asyncio.Semaphore(6)
     async with async_playwright() as api:
         browser = await api.chromium.launch()
 
-        async def fetch_price(asin):
-            async with slots:
-                try:
+        async def check_product(asin, threshold, name):
+            price = None
+            read_status = "失败"
+            mail_status = "未检查"
+            failed = False
+            try:
+                limit = Decimal(threshold)
+                url = product_url(asin)
+                async with slots:
                     page = await browser.new_page(locale="zh-CN")
                     try:
-                        await page.goto(product_url(asin), wait_until="domcontentloaded", timeout=45_000)
+                        await page.goto(url, wait_until="domcontentloaded", timeout=45_000)
                         await page.locator(
                             ".promotion-price-area .promotion-price, .price-deal__original-price"
                         ).first.wait_for(timeout=25_000)
-                        return parse_price(await page.content())
+                        price = parse_price(await page.content())
                     finally:
                         await page.close()
-                except Exception as exc:
-                    print(f"Product price check failed ({type(exc).__name__})", flush=True)
-                    return None
 
-        return await asyncio.gather(*(fetch_price(asin) for asin, _, _ in products))
+                read_status = "成功"
+                mail_status = "未触发"
+                print("Product price checked", flush=True)
+                if price < limit:
+                    mail_status = "发送失败"
+                    if not (SENDER and RECIPIENT and code):
+                        raise ValueError("Email secrets are missing")
+                    await asyncio.to_thread(
+                        send_mail,
+                        code,
+                        f"亚马逊海外购降价提醒：{name} ¥{price}",
+                        f"{name}\n商品标价 ¥{price}，低于 ¥{limit}。\n商品链接：{url}?isShare=true",
+                    )
+                    mail_status = "已发送"
+            except Exception as exc:
+                print(f"Check or notification failed ({type(exc).__name__})", flush=True)
+                failed = True
+            return (f"{name} · {asin}", price, read_status, mail_status, threshold), failed
+
+        return await asyncio.gather(*(check_product(*product) for product in products))
 
 
 def main():
@@ -180,35 +202,9 @@ def main():
         write_summary([])
         return 0
 
-    failed = False
-    rows = []
-    code = os.environ.get("SMTP_CODE", "")
-    prices = asyncio.run(fetch_prices(products))
-    for (asin, threshold, name), price in zip(products, prices):
-        read_status = "失败"
-        mail_status = "未检查"
-        try:
-            if price is None:
-                failed = True
-            else:
-                limit = Decimal(threshold)
-                read_status = "成功"
-                mail_status = "未触发"
-                print("Product price checked", flush=True)
-                if price < limit:
-                    mail_status = "发送失败"
-                    if not (SENDER and RECIPIENT and code):
-                        raise ValueError("Email secrets are missing")
-                    url = product_url(asin)
-                    send_mail(code, f"亚马逊海外购降价提醒：{name} ¥{price}",
-                              f"{name}\n商品标价 ¥{price}，低于 ¥{limit}。\n商品链接：{url}?isShare=true")
-                    mail_status = "已发送"
-        except Exception as exc:
-            print(f"Check or notification failed ({type(exc).__name__})", flush=True)
-            failed = True
-        rows.append((f"{name} · {asin}", price, read_status, mail_status, threshold))
-    write_summary(rows)
-    return int(failed)
+    results = asyncio.run(check_products(products, os.environ.get("SMTP_CODE", "")))
+    write_summary([row for row, _ in results])
+    return int(any(failed for _, failed in results))
 
 
 if __name__ == "__main__":
