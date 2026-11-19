@@ -178,7 +178,7 @@ def main():
                     if not (SENDER and RECIPIENT and code):
                         raise ValueError("Email secrets are missing")
                     send_mail(code, f"亚马逊海外购降价提醒：{name} ¥{price}",
-                              f"{name}\n商品标价 ¥{price}，低于 ¥{limit}。\n商品链接：{url}")
+                              f"{name}\n商品标价 ¥{price}，低于 ¥{limit}。\n商品链接：{url}?isShare=true")
                     mail_status = "已发送"
             except Exception as exc:
                 print(f"Check or notification failed ({type(exc).__name__})", flush=True)
