@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,7 @@ import re
 import smtplib
 import ssl
 
+from playwright.async_api import async_playwright
 from playwright.sync_api import sync_playwright
 
 PRODUCTS = os.environ.get("MONITOR_PRODUCTS", "")
@@ -145,6 +147,30 @@ def manage_products(action):
     return 0
 
 
+async def fetch_prices(products):
+    slots = asyncio.Semaphore(6)
+    async with async_playwright() as api:
+        browser = await api.chromium.launch()
+
+        async def fetch_price(asin):
+            async with slots:
+                try:
+                    page = await browser.new_page(locale="zh-CN")
+                    try:
+                        await page.goto(product_url(asin), wait_until="domcontentloaded", timeout=45_000)
+                        await page.locator(
+                            ".promotion-price-area .promotion-price, .price-deal__original-price"
+                        ).first.wait_for(timeout=25_000)
+                        return parse_price(await page.content())
+                    finally:
+                        await page.close()
+                except Exception as exc:
+                    print(f"Product price check failed ({type(exc).__name__})", flush=True)
+                    return None
+
+        return await asyncio.gather(*(fetch_price(asin) for asin, _, _ in products))
+
+
 def main():
     action = os.environ.get("MONITOR_ACTION") or "check"
     if action in {"add", "delete"}:
@@ -153,23 +179,19 @@ def main():
     if not products:
         write_summary([])
         return 0
+
     failed = False
     rows = []
     code = os.environ.get("SMTP_CODE", "")
-    with sync_playwright() as browser_api:
-        browser = browser_api.chromium.launch()
-        for asin, threshold, name in products:
-            price = None
-            read_status = "失败"
-            mail_status = "未检查"
-            page = None
-            try:
+    prices = asyncio.run(fetch_prices(products))
+    for (asin, threshold, name), price in zip(products, prices):
+        read_status = "失败"
+        mail_status = "未检查"
+        try:
+            if price is None:
+                failed = True
+            else:
                 limit = Decimal(threshold)
-                page = browser.new_page(locale="zh-CN")
-                url = product_url(asin)
-                page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-                page.locator(".promotion-price-area .promotion-price, .price-deal__original-price").first.wait_for(timeout=25_000)
-                price = parse_price(page.content())
                 read_status = "成功"
                 mail_status = "未触发"
                 print("Product price checked", flush=True)
@@ -177,16 +199,14 @@ def main():
                     mail_status = "发送失败"
                     if not (SENDER and RECIPIENT and code):
                         raise ValueError("Email secrets are missing")
+                    url = product_url(asin)
                     send_mail(code, f"亚马逊海外购降价提醒：{name} ¥{price}",
                               f"{name}\n商品标价 ¥{price}，低于 ¥{limit}。\n商品链接：{url}?isShare=true")
                     mail_status = "已发送"
-            except Exception as exc:
-                print(f"Check or notification failed ({type(exc).__name__})", flush=True)
-                failed = True
-            finally:
-                rows.append((f"{name} · {asin}", price, read_status, mail_status, threshold))
-                if page is not None:
-                    page.close()
+        except Exception as exc:
+            print(f"Check or notification failed ({type(exc).__name__})", flush=True)
+            failed = True
+        rows.append((f"{name} · {asin}", price, read_status, mail_status, threshold))
     write_summary(rows)
     return int(failed)
 
